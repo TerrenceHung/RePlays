@@ -38,7 +38,7 @@ namespace RePlays.Services {
             // Get device paths for mounted drive letters
             for (char letter = 'A'; letter <= 'Z'; letter++) {
                 string driveLetter = letter + ":";
-                StringBuilder s = new StringBuilder();
+                StringBuilder s = new StringBuilder(1000);
                 if (QueryDosDevice(driveLetter, s, 1000)) {
                     drivePaths.Add(s.ToString(), driveLetter);
                 }
