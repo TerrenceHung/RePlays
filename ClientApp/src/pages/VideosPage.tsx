@@ -87,11 +87,11 @@ export const VideosPage: React.FC<Props> = ({videoType, gameList, game, sortBy, 
         overscan={4}
         listClassName={(
           videoView === 'grid' ? 
-          "gap-8 grid grid-flow-row sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 pr-8 mt-4 mb-4" 
+          "gap-x-8 grid grid-flow-row sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 pr-8" 
           : 
-          "gap-8 grid grid-flow-row grid-cols-1 pr-8 mt-4 mb-4" // TODO, make this look better
+          "gap-x-8 grid grid-flow-row grid-cols-1 pr-8" // TODO, make this look better
         )}
-        itemClassName={"overflow-hidden shadow-lg h-90 md:w-auto cursor-pointer m-auto"}
+        itemClassName={"overflow-hidden shadow-lg h-90 md:w-auto cursor-pointer m-auto my-4"}
         itemContent={index => 
           <Card key={videos[index].fileName} 
             game={videos[index].game}
@@ -101,6 +101,11 @@ export const VideosPage: React.FC<Props> = ({videoType, gameList, game, sortBy, 
             date={videos[index].date}
             size={videos[index].size}
             duration={videos[index].metadata.duration}
+            kills={videos[index].metadata.kills !== undefined ? videos[index].metadata.kills : undefined}
+            assists={videos[index].metadata.assists !== undefined ? videos[index].metadata.assists : undefined}
+            deaths={videos[index].metadata.deaths !== undefined ? videos[index].metadata.deaths : undefined}
+            champion={videos[index].metadata.champion !== undefined ? videos[index].metadata.champion : undefined}
+            win={videos[index].metadata.win !== undefined ? videos[index].metadata.win : undefined}
             thumb={videos[index].thumbnail}
             checked={checkedVideos[index]}
             onChange={(e) => onVideoSelected(e, index)}/>

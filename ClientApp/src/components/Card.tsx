@@ -9,6 +9,11 @@ interface Props {
   game?: string;
   size?: number;
   duration?: number;
+  kills?: number;
+  assists?: number;
+  deaths?: number;
+  champion?: string;
+  win?: boolean;
   date?: string;
   video?: string;
   videoType?: string;
@@ -18,20 +23,22 @@ interface Props {
   onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
 }
 
-export const Card: React.FC<Props> = ({date=Date.now().toString(), game="Game Unknown", thumb="video_thumbnail_placeholder.png", size=0, duration=0, video="", videoType="", folder="", checked, onChange}) => {
+export const Card: React.FC<Props> = ({date=Date.now().toString(), game="Game Unknown", thumb="video_thumbnail_placeholder.png", size=0, duration=0, kills, assists, deaths, champion, win, video="", videoType="", folder="", checked, onChange}) => {
   const modalCtx = useContext(ModalContext);
-  
+    const resultText = win === undefined ? undefined : win ? 'Win' : 'Loss';
+    const resultColor = win === undefined ? undefined : win ? 'text-green-500' : 'text-red-500';
+
   function handleUpload() {
     console.log(`${game} ${video} ${videoType} to upload`);
     var thumb = `${folder}/${game}/.thumbs/${video}`;
-    thumb = thumb.substr(0, thumb.lastIndexOf('.')) + ".png" || thumb + ".png";
+    thumb = thumb.substr(0, thumb.lastIndexOf('.')) + ".webp" || thumb + ".webp";
 
     modalCtx?.setData({title: "Upload", context: <UploadModal video={video} game={game} thumb={thumb}/>, cancel: true});
     modalCtx?.setOpen(true);
   }
   
   return (
-    <div className={"relative w-full block h-full group rounded-lg border " + (checked ? "border-blue-500" : "border-gray-500")}>
+    <div className={"relative w-full block h-full group rounded-lg border " + (checked ? "border-2 border-blue-500" : "border border-gray-500")}>
       <div className="absolute z-50 w-full flex justify-between">
         <div className={"m-2 group-hover:opacity-100 " + (checked ? "opacity-100" : "opacity-0")}>
           <input type="checkbox" className="h-4 w-4" checked={(checked === undefined || checked === false ? false : true)} onChange={(e) => {onChange(e);}}/>
@@ -57,10 +64,19 @@ export const Card: React.FC<Props> = ({date=Date.now().toString(), game="Game Un
         </div>
       </div>
       <Link to={`/player/${game}/${video}/${videoType}`} onClick={() => {console.log(folder)}}>
-        <div className="relative w-full rounded-t-lg object-cover overflow-hidden items-center">
+        <div className="relative text-white w-full rounded-t-lg object-cover overflow-hidden items-center">
           <span className="absolute z-40 bottom-1 right-1 py-0.5 px-2 rounded-full text-xs font-normal" style={{backgroundColor: `rgba(0, 0, 0, 0.5)`}}>
             {duration > 3600 ? new Date(duration * 1000).toISOString().substr(11, 8).replace(/^0+/, '') : new Date(duration * 1000).toISOString().substring(14, 19)}
           </span>
+          {game === "League of Legends" && videoType === "Sessions" && champion && champion !== "TFTChampion" && (
+            <span className="absolute z-40 bottom-1 left-1 text-xs font-normal flex items-center">
+              <img className="border border-black -mr-4 z-40 rounded-full" src={`https://ddragon.leagueoflegends.com/cdn/13.13.1/img/champion/${champion}.png`} style={{ width: "20px" }} alt={champion}/>
+              <p className="py-0.5 pl-5 rounded-full p-2" style={{ backgroundColor: `rgba(0, 0, 0, 0.5)` }}>
+                {`${kills}/${deaths}/${assists}`}{resultText && " - "}
+                {resultText && <span className={`font-bold ${resultColor}`}>{resultText}</span>}
+              </p>
+            </span>
+          )}
           <div className="absolute z-30 w-full h-full bg-black opacity-0 group-hover:opacity-50"/>
           <img className="absolute z-20 w-full" alt="" src={`${folder}/${game}/.thumbs/${thumb}`}/>
           <img className="relative z-10 w-full" alt="" src={"video_thumbnail_placeholder.png"}/>

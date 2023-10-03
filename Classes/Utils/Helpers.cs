@@ -1,3 +1,4 @@
+using RePlays.Recorders;
 using RePlays.Services;
 using System;
 using System.Collections.Generic;
@@ -6,12 +7,16 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Management;
+using System.Net.Http;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+using System.Timers;
+using Process = System.Diagnostics.Process;
 
 namespace RePlays.Utils {
     public static class Functions {
@@ -136,8 +141,8 @@ namespace RePlays.Utils {
             inputCache.Clear();
             outputCache.Add(new("default", "Default Device"));
             outputCache.Add(new("communications", "Default Communication Device"));
-            inputCache.Add(new("default", "Default Device"));
-            inputCache.Add(new("communications", "Default Communication Device"));
+            inputCache.Add(new("default", "Default Device", false));
+            inputCache.Add(new("communications", "Default Communication Device", false));
             ManagementObjectSearcher searcher = new("Select * From Win32_PnPEntity");
             ManagementObjectCollection deviceCollection = searcher.Get();
             foreach (ManagementObject obj in deviceCollection) {
@@ -185,7 +190,7 @@ namespace RePlays.Utils {
         }
 
         public static VideoList GetAllVideos(string Game = "All Games", string SortBy = "Latest", bool isVideoList = true) {
-            var videoExtensions = new[] { ".mp4", ".mkv" };
+            var videoExtensions = new[] { ".mp4", ".mkv", ".mov", ".flv" };
             List<string> allfiles = new();
             switch (SortBy) {
                 case "Latest":
@@ -352,7 +357,14 @@ namespace RePlays.Utils {
             string metadataPath = Path.Combine(thumbsDir, Path.GetFileNameWithoutExtension(videoPath) + ".metadata");
 
             if (File.Exists(metadataPath)) {
-                return JsonSerializer.Deserialize<VideoMetadata>(File.ReadAllText(metadataPath));
+                try {
+                    return JsonSerializer.Deserialize<VideoMetadata>(File.ReadAllText(metadataPath));
+                }
+                catch (Exception ex) {
+                    Logger.WriteLine($"Error deserializing video metadata for '{Path.GetFileName(videoPath)}': {ex.Message}");
+                    File.Delete(metadataPath);
+                    return GetOrCreateMetadata(videoPath);
+                }
             }
             else {
                 var metadata = new VideoMetadata();
@@ -368,6 +380,20 @@ namespace RePlays.Utils {
 
                 File.WriteAllText(metadataPath, JsonSerializer.Serialize<VideoMetadata>(metadata));
                 return metadata;
+            }
+        }
+
+        public static void UpdateMetadataWithStats(string videoPath, PlayerStats playerStats) {
+            string thumbsDir = Path.Combine(Path.GetDirectoryName(videoPath), ".thumbs\\");
+            string metadataPath = Path.Combine(thumbsDir, Path.GetFileNameWithoutExtension(videoPath) + ".metadata");
+            if (File.Exists(metadataPath)) {
+                VideoMetadata metadata = JsonSerializer.Deserialize<VideoMetadata>(File.ReadAllText(metadataPath));
+                metadata.kills = playerStats.Kills;
+                metadata.assists = playerStats.Assists;
+                metadata.deaths = playerStats.Deaths;
+                metadata.champion = playerStats.Champion;
+                metadata.win = playerStats.Win;
+                File.WriteAllText(metadataPath, JsonSerializer.Serialize<VideoMetadata>(metadata));
             }
         }
 
@@ -585,14 +611,16 @@ namespace RePlays.Utils {
 
         public static string GetAspectRatio(int width, int height) {
             BigInteger gcd = BigInteger.GreatestCommonDivisor(width, height);
+            if (gcd == 0)
+                return $"0:0";
+
             int aspectWidth = width / (int)gcd;
             int aspectHeight = height / (int)gcd;
-
             return $"{aspectWidth}:{aspectHeight}";
         }
 
         public static bool IsValidAspectRatio(int width, int height) {
-            return new[] { "64:27", "43:18", "21:9", "16:10", "16:9", "4:3" }.Contains(GetAspectRatio(width, height));
+            return new[] { "64:27", "43:18", "21:9", "16:10", "16:9", "4:3", "32:9" }.Contains(GetAspectRatio(width, height));
         }
 
         public static IEnumerable<(T item, int index)> WithIndex<T>(this IEnumerable<T> source) {
@@ -649,6 +677,136 @@ namespace RePlays.Utils {
             // our last action in the above loop was to switch d and p, so p now 
             // actually has the most recent cost counts
             return p[n];
+        }
+
+        private static int elapsedSeconds;
+        private static Timer checkForNvidiaUpdateTimer;
+
+        public static async void DownloadNvidiaAudioSDK() {
+            var query = new ObjectQuery("SELECT * FROM Win32_VideoController");
+            var searcher = new ManagementObjectSearcher(query);
+
+            // Regex pattern to extract the graphics card version (Example: 3060, 4090 TI, 2070)
+            Regex regex = new Regex(@"\b[2-4]0[0-9]0\b");
+            string gpuRTX = null;
+
+            // Retrieve and display the graphics card information
+            foreach (ManagementObject obj in searcher.Get()) {
+                string gpuName = obj["Name"].ToString();
+                Logger.WriteLine("Detected GPU: " + gpuName);
+                Match match = regex.Match(gpuName);
+
+                if (match.Success) {
+                    gpuRTX = match.Value;
+                }
+            }
+
+            if (gpuRTX == null) {
+                WebMessage.DisplayModal("You must have an RTX graphics card to use NVIDIA Noise Removal", "Warning", "warning");
+                return;
+            }
+
+            int versionNumber = int.Parse(gpuRTX[..2]);
+            string url;
+
+            switch (versionNumber) {
+                case 20:
+                    url = "https://international.download.nvidia.com/Windows/broadcast/sdk/AFX/2022-12-22_nvidia_afx_sdk_win_v1.3.0.21_turing.exe";
+                    break;
+                case 30:
+                    url = "https://international.download.nvidia.com/Windows/broadcast/sdk/AFX/2022-12-22_nvidia_afx_sdk_win_v1.3.0.21_ampere.exe";
+                    break;
+                case 40:
+                    url = "https://international.download.nvidia.com/Windows/broadcast/sdk/AFX/2022-12-22_nvidia_afx_sdk_win_v1.3.0.21_ada.exe";
+                    break;
+                default:
+                    WebMessage.DisplayModal("You must have an RTX graphics card to use NVIDIA Noise Removal", "Warning", "warning");
+                    return;
+            }
+
+            string savePath = Path.Join(GetTempFolder(), "nvidia.exe");
+
+            using (HttpClient client = new HttpClient()) {
+                using (HttpResponseMessage response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead)) {
+                    response.EnsureSuccessStatusCode();
+
+                    long? totalBytes = response.Content.Headers.ContentLength;
+
+                    using (Stream contentStream = await response.Content.ReadAsStreamAsync()) {
+                        await ProcessContentStream(contentStream, totalBytes, savePath);
+                    }
+                }
+            }
+
+            WebMessage.DestroyToast("Nvidia");
+            Logger.WriteLine("Download completed!");
+
+            ProcessStartInfo startInfo = new ProcessStartInfo(savePath) {
+                UseShellExecute = true,
+                Verb = "runas"
+            };
+            Process.Start(startInfo);
+
+            elapsedSeconds = 0;
+            checkForNvidiaUpdateTimer = new Timer(1000);
+            checkForNvidiaUpdateTimer.Elapsed += TimerElapsed;
+            checkForNvidiaUpdateTimer.AutoReset = true;
+            checkForNvidiaUpdateTimer.Start();
+        }
+
+        private static void TimerElapsed(object sender, ElapsedEventArgs e) {
+            elapsedSeconds++;
+
+            LibObsRecorder activeRecorder = (LibObsRecorder)RecordingService.ActiveRecorder;
+            if (activeRecorder.HasNvidiaAudioSDK()) {
+                checkForNvidiaUpdateTimer.Stop();
+                WebMessage.SendMessage(GetUserSettings());
+            }
+
+            const int maxSeconds = 600;
+            if (elapsedSeconds >= maxSeconds) {
+                checkForNvidiaUpdateTimer.Stop();
+            }
+        }
+
+        public static string GetGitSHA1Hash(string filePath) {
+            var hash = "";
+            try {
+                using var sha1 = SHA1.Create();
+                using var stream = File.OpenRead(filePath);
+                byte[] contentBytes = Encoding.ASCII.GetBytes($"blob {stream.Length}\0");
+                sha1.TransformBlock(contentBytes, 0, contentBytes.Length, contentBytes, 0);
+
+                byte[] fileBytes = new byte[4096];
+                int bytesRead;
+                while ((bytesRead = stream.Read(fileBytes, 0, fileBytes.Length)) > 0) {
+                    sha1.TransformBlock(fileBytes, 0, bytesRead, fileBytes, 0);
+                }
+                sha1.TransformFinalBlock(fileBytes, 0, 0);
+                hash = BitConverter.ToString(sha1.Hash).Replace("-", "").ToLower();
+            }
+            catch (Exception ex) {
+                Logger.WriteLine($"Error retrieving sha1 file hash: {ex.Message}");
+            }
+            return hash;
+        }
+
+        static async Task ProcessContentStream(Stream contentStream, long? totalBytes, string savePath) {
+            long totalDownloaded = 0;
+            byte[] buffer = new byte[8192];
+            int bytesRead;
+
+            using (FileStream fileStream = new FileStream(savePath, FileMode.Create, FileAccess.Write, FileShare.None, 8192, true)) {
+                while ((bytesRead = await contentStream.ReadAsync(buffer, 0, buffer.Length)) > 0) {
+                    await fileStream.WriteAsync(buffer, 0, bytesRead);
+                    totalDownloaded += bytesRead;
+
+                    if (totalBytes.HasValue) {
+                        int progressPercentage = (int)((totalDownloaded * 100) / totalBytes.Value);
+                        WebMessage.DisplayToast("Nvidia", "Nvidia Audio SDK", "Downloading", "none", progressPercentage, 100);
+                    }
+                }
+            }
         }
     }
 }
